@@ -9,7 +9,6 @@ from openfe import OpenFE, transform
 from autogluon.tabular import TabularDataset, TabularPredictor
 from autogluon.core.metrics import make_scorer
 from configuration import cfg
-from fastai.metrics import msle
 
 
 def get_autogluon_scorer():
@@ -23,6 +22,8 @@ def msle_loss(y_true, y_pred):
             (1 - np.log1p(y_pred) + np.log1p(y_true)) / (1 + y_pred) ** 2)
 
 
+
+
 if __name__ == '__main__':
     xgboost_options = {'objective': 'reg:squaredlogerror'}
     hyperparameters = {'GBM': {}, 'XGB': xgboost_options, 'CAT': {'loss_function': 'RMSE'}, 'RF': {},'XT':{},
@@ -31,7 +32,7 @@ if __name__ == '__main__':
     df = df.drop(columns='id')
     #df = pd.get_dummies(df)
     ag_rmsle_scorer = get_autogluon_scorer()
-    model = TabularPredictor(eval_metric=ag_rmsle_scorer, label='Rings', path='models', problem_type='regression',
+    model = TabularPredictor(eval_metric=ag_rmsle_scorer, label='Rings', path='models/original_data', problem_type='regression',
                              )
     #df = df.loc[df['Rings'] <= 20]
     y = df['Rings']
@@ -51,7 +52,7 @@ if __name__ == '__main__':
     submission_ids = df_submission['id']
 
     X_submission = df_submission.drop(columns='id')
-    X_submission = pd.get_dummies(X_submission)
+    #X_submission = pd.get_dummies(X_submission)
 
     # Use feature engineering for folds
     X_sub = transform(X_submission, X_submission, features[:cfg.n_features], n_jobs=cfg.n_jobs)[0]
