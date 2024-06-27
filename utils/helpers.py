@@ -2,6 +2,7 @@ import pickle
 import pandas as pd
 from openfe import transform
 from typing import *
+import openfe as of
 
 
 def load_ofe() -> tuple[Any, Any]:
@@ -43,3 +44,44 @@ def preprocess_features(train_path: str = 'playground-series-s4e4/train.csv', n_
         return X, y, X_additional_train, y_additional_train
     else:
         return X, y, None, None
+
+
+def get_features(train_data: pd.DataFrame) -> list[of.FeatureSelector.Node]:
+    all_features = list(train_data.columns)
+    categorical_columns = list(train_data.select_dtypes(include=['category', 'object']).columns)
+    ordinal_columns = list(train_data.select_dtypes(include=['int']).columns)
+
+    soft_ordinal = [f for f in all_features if (train_data[f].nunique() <= 100) and (f not in ordinal_columns)]
+    numerical_features = [f for f in all_features if f not in categorical_columns]
+    candidate_features = of.get_candidate_features(
+        numerical_features=numerical_features,
+        categorical_features=categorical_columns,
+        ordinal_features=ordinal_columns + soft_ordinal,
+        order=1,  # 2 is likely impossible to use w/o time estimate.
+    )
+
+    # Restrict Search Space of Candidate Features
+    candidate_features = [
+        f
+        for f in candidate_features
+        if f.name
+           in [
+               "freq",
+               "round",
+               "residual",
+               "/",
+               "*",
+               "GroupByThenMedian",
+               "GroupByThenStd",
+               "GroupByThenFreq",
+               "GroupByThenNUnique",
+               "Combine",
+               # New Generators
+               #   - Hacked into OpenFE by adding `new_data = int(d < d.quantile(X).max())` to the generator options.
+               "<p0.2",  # X = 0.2
+               "<p0.4",
+               "<p0.6",
+               "<p0.8",
+           ]
+    ]
+    return candidate_features
