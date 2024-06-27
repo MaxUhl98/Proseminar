@@ -79,25 +79,12 @@ class XGBConfig:
     load_feature_selector: bool = False
 
 
-if __name__ == '__main__':
-    X, y, X_additional_train, y_additional_train = preprocess_features()
+def train(use_additional_data: bool = False):
+    X, y, X_additional_train, y_additional_train = preprocess_features(use_additional_data=use_additional_data)
     print('Dummied Data')
 
     folder = StratifiedKFold(n_splits=XGBConfig.num_folds, shuffle=True)
     folds = folder.split(X, y)
-
-    #params = {'reg_lambda': 0.2508574300929533,
-    #          'reg_alpha': 0.13159161365843544,
-    #          'subsample': 0.5986422285944151,
-    #          'colsample_bytree': 0.4552369359133244,
-    #          'sampling_method': 'gradient_based',
-    #          'max_depth': 9,
-    #          'min_child_weight': 2,
-    #          'learning_rate': 0.005549096292032568,
-    #          'gamma': 1.7388024670776588e-05,
-    #          'n_estimators':10**4,
-    #          'early_stopping_rounds':100
-    #          }
 
     models = [XGBRegressor(objective='reg:squaredlogerror') for _ in range(XGBConfig.num_folds)]
     print('Created Models')
@@ -105,9 +92,12 @@ if __name__ == '__main__':
     fold_data = {'Val RMSLE': []}
     for num, fold_idx in enumerate(folds):
         train_idx, val_idx = fold_idx
-
-        X_train = pd.concat([X.iloc[train_idx], X_additional_train], axis=0)
-        y_train = pd.concat([y.iloc[train_idx], y_additional_train], axis=0)
+        if use_additional_data:
+            X_train = pd.concat([X.iloc[train_idx], X_additional_train], axis=0)
+            y_train = pd.concat([y.iloc[train_idx], y_additional_train], axis=0)
+        else:
+            X_train = X.iloc[train_idx]
+            y_train = y.iloc[train_idx]
 
         X_val = X.iloc[val_idx]
         y_val = y.iloc[val_idx]
@@ -121,3 +111,6 @@ if __name__ == '__main__':
     for num, model in enumerate(models):
         model.save_model(f'models/xgb/{XGBConfig.method}_fold_{num + 1}_xgb.json')
     create_submission(used_columns=list(X.columns))
+
+
+if __name__ == '__main__':
