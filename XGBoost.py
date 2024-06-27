@@ -114,3 +114,4 @@ def train(use_additional_data: bool = False):
 
 
 if __name__ == '__main__':
+    train()
