@@ -1,8 +1,12 @@
+import os.path
 import pickle
+import pprint
+
 import pandas as pd
 from openfe import transform
 from typing import *
 import openfe as of
+from configuration import Configuration
 
 
 def load_ofe() -> tuple[Any, Any]:
@@ -14,7 +18,8 @@ def load_ofe() -> tuple[Any, Any]:
 
 
 def preprocess_features(train_path: str = 'playground-series-s4e4/train.csv', n_jobs: int = 1,
-                        num_engineered_features: int = 10 ** 4, use_additional_data: bool = True):
+                        num_engineered_features: int = 10 ** 4, use_additional_data: bool = True,
+                        reduce_features: bool = True, dummy_data: bool = True):
     df = pd.read_csv(train_path)
     if use_additional_data:
         abalone_data = pd.read_csv('playground-series-s4e4/abalone.csv')
@@ -25,39 +30,76 @@ def preprocess_features(train_path: str = 'playground-series-s4e4/train.csv', n_
                      'Viscera weight': 'Whole weight.2',
                      'Shell weight': 'Shell weight'})
 
-    ofe, features = load_ofe()
-
     y = df['Rings']
     X = df.drop(columns=['Rings', 'id'])
+
+    if reduce_features:
+        features = get_reduced_features(X)
+        if not os.path.exists('feature_generators/current_reduced_feature_generator.pkl'):
+            features = of.OpenFE().fit(X, y, 'regression', candidate_features_list=features)
+            pickle.dump(features, open('feature_generators/current_reduced_feature_generator.pkl', 'wb'))
+        else:
+            features = pickle.load(open('feature_generators/current_reduced_feature_generator.pkl', 'rb'))
+    else:
+        features = get_features(X)
+        if not os.path.exists('feature_generators/current_feature_generator.pkl'):
+            features = of.OpenFE().fit(X, y, 'regression', candidate_features_list=features)
+            pickle.dump(features, open('feature_generators/current_feature_generator.pkl', 'wb'))
+        else:
+            features = pickle.load(open('feature_generators/current_feature_generator.pkl', 'rb'))
+
     X, _ = transform(X, X.iloc[0:0], features[:num_engineered_features],
                      n_jobs=n_jobs)
     if use_additional_data:
         X_additional_train, _ = transform(X_additional_train, X_additional_train.iloc[0:0],
                                           features[:num_engineered_features],
                                           n_jobs=n_jobs)
-        X_additional_train = pd.get_dummies(X_additional_train)
 
-    X = pd.get_dummies(X)
-    X = X.astype(dtype=float)[list(X_additional_train.columns)] if use_additional_data else X.astype(float)
+    if dummy_data:
+
+        if use_additional_data:
+            X_additional_train = pd.get_dummies(X_additional_train, columns=['Sex'])
+            X_additional_train = X_additional_train.astype(dtype=float)
+
+        X = pd.get_dummies(X, columns=['Sex'])
+        X = X.astype(dtype=float)[list(X_additional_train.columns)] if use_additional_data else X.astype(float)
+
     if use_additional_data:
-        X_additional_train = X_additional_train.astype(dtype=float)
-        return X, y, X_additional_train, y_additional_train
+        return X, y, X_additional_train, y_additional_train, features
     else:
-        return X, y, None, None
+        return X, y, None, None, features
 
 
-def get_features(train_data: pd.DataFrame) -> list[of.FeatureSelector.Node]:
+def get_features(train_data: pd.DataFrame):
     all_features = list(train_data.columns)
     categorical_columns = list(train_data.select_dtypes(include=['category', 'object']).columns)
     ordinal_columns = list(train_data.select_dtypes(include=['int']).columns)
 
-    soft_ordinal = [f for f in all_features if (train_data[f].nunique() <= 100) and (f not in ordinal_columns)]
+    soft_ordinal = [f for f in all_features if
+                    (train_data[f].nunique() <= 100) and (f not in ordinal_columns + categorical_columns)]
     numerical_features = [f for f in all_features if f not in categorical_columns]
     candidate_features = of.get_candidate_features(
         numerical_features=numerical_features,
         categorical_features=categorical_columns,
         ordinal_features=ordinal_columns + soft_ordinal,
-        order=1,  # 2 is likely impossible to use w/o time estimate.
+        order=1
+    )
+    return candidate_features
+
+
+def get_reduced_features(train_data: pd.DataFrame) -> list[of.FeatureSelector.Node]:
+    all_features = list(train_data.columns)
+    categorical_columns = list(train_data.select_dtypes(include=['category', 'object']).columns)
+    ordinal_columns = list(train_data.select_dtypes(include=['int']).columns)
+
+    soft_ordinal = [f for f in all_features if
+                    (train_data[f].nunique() <= 100) and (f not in ordinal_columns + categorical_columns)]
+    numerical_features = [f for f in all_features if f not in categorical_columns]
+    candidate_features = of.get_candidate_features(
+        numerical_features=numerical_features,
+        categorical_features=categorical_columns,
+        ordinal_features=ordinal_columns + soft_ordinal,
+        order=1
     )
 
     # Restrict Search Space of Candidate Features
@@ -76,12 +118,61 @@ def get_features(train_data: pd.DataFrame) -> list[of.FeatureSelector.Node]:
                "GroupByThenFreq",
                "GroupByThenNUnique",
                "Combine",
-               # New Generators
-               #   - Hacked into OpenFE by adding `new_data = int(d < d.quantile(X).max())` to the generator options.
-               "<p0.2",  # X = 0.2
+               "<p0.2",
                "<p0.4",
                "<p0.6",
                "<p0.8",
            ]
     ]
     return candidate_features
+
+
+def create_submission(df_submission: pd.DataFrame, models: List[Any]):
+    # Save Submission id's to add them to the submission dataframe later (required by the competition for identification)
+    submission_ids = df_submission['id']
+
+    X_sub = df_submission.drop(columns='id')
+    preds = sum([_model.predict(X_sub.values) for _model in models]) / Configuration.num_folds
+    df_submission = pd.DataFrame({'id': submission_ids, 'prediction': preds})
+    df_submission.index = df_submission.id
+    df_submission.drop(columns='id', inplace=True)
+    submission_path = f'submissions/{Configuration.model_base_save_directory[models[0].__class__].rsplit("/", 1)[1]}/submission.csv'
+    df_submission.to_csv(submission_path)
+    print(f'Created submission at {submission_path}')
+
+
+def generate_preprocessed_data_files():
+    X_submission = pd.read_csv('playground-series-s4e4/test.csv')
+    _ids = X_submission.pop('id')
+    config_list = [
+        {'suffix': '_reduced', 'use_additional_data': True, 'dummy_data': True, 'reduce_features': True},
+        {'suffix': '_reduced_raw', 'use_additional_data': False, 'dummy_data': True, 'reduce_features': True},
+        {'suffix': '_reduced', 'use_additional_data': True, 'dummy_data': False, 'reduce_features': True},
+        {'suffix': '_reduced_raw', 'use_additional_data': False, 'dummy_data': False, 'reduce_features': True},
+        {'suffix': '', 'use_additional_data': True, 'dummy_data': True, 'reduce_features': False},
+        {'suffix': '_raw', 'use_additional_data': False, 'dummy_data': True, 'reduce_features': False},
+        {'suffix': '', 'use_additional_data': True, 'dummy_data': False, 'reduce_features': False},
+        {'suffix': '_raw', 'use_additional_data': False, 'dummy_data': False, 'reduce_features': False},
+    ]
+    for config in config_list:
+        X, y, X_extra, y_extra, features = preprocess_features(
+            n_jobs=30,
+            use_additional_data=config['use_additional_data'],
+            dummy_data=config['dummy_data'],
+            reduce_features=config['reduce_features']
+        )
+        suffix = config['suffix']
+        base_dir = 'data/dummied' if config['dummy_data'] else 'data/undummied'
+        X.to_feather(f'{base_dir}/X{suffix}.feather')
+        y.to_frame().to_feather(f'{base_dir}/y{suffix}.feather')
+        if config['use_additional_data']:
+            X_extra.to_feather(f'{base_dir}/X{suffix}_extra.feather')
+            y_extra.to_frame().to_feather(f'{base_dir}/y{suffix}_extra.feather')
+        X_sub = transform(X_submission.copy(), X_submission.iloc[0:0].copy(), features, n_jobs=Configuration.n_jobs)[0]
+        X_sub = pd.get_dummies(X_sub, columns=['Sex']) if config['dummy_data'] else X_sub
+        assert X.shape[1] == X_sub.shape[1], AssertionError(X.shape, X_sub.shape)
+        X_sub = pd.concat([X_sub, _ids], axis=1)
+        if config['use_additional_data']:
+            X_sub.to_feather(f'{base_dir}/X_sub{suffix}_extra.feather')
+        else:
+            X_sub.to_feather(f'{base_dir}/X_sub{suffix}.feather')
