@@ -7,7 +7,7 @@ from openfe import transform
 from typing import *
 import openfe as of
 from configuration import Configuration
-
+import numpy as np
 
 def load_ofe() -> tuple[Any, Any]:
     with open('feature_generators/ofe_original_feature_generator.pkl', 'rb') as inp:
@@ -176,3 +176,35 @@ def generate_preprocessed_data_files():
             X_sub.to_feather(f'{base_dir}/X_sub{suffix}_extra.feather')
         else:
             X_sub.to_feather(f'{base_dir}/X_sub{suffix}.feather')
+
+
+def get_reduced_cols(df:pd.DataFrame, y:pd.DataFrame, cross_correlation_threshold:float=.95,min_target_correlation:float=.5 ):
+    df = df.drop(columns='Sex').astype(float)
+    df = pd.concat([df, y], axis=1).astype(float).dropna()
+    relevant_cols = df.std().loc[df.std() >= .001].index
+    df = df[relevant_cols]
+    drops = ['autoFE_f_173', 'autoFE_f_174', 'autoFE_f_187']
+    df.drop(columns=drops, inplace=True)
+    corr = df.corr()
+    idx, cols = corr.index, list(corr.columns)
+    data = pd.DataFrame(np.tril(corr, -1), index=idx, columns=cols)
+    data = np.abs(data)
+    data.iloc[-1, -1] = .5
+    drops = data.loc[(data.iloc[-1] <= min_target_correlation)].index
+    data.drop(columns=drops, inplace=True)
+    data.drop(drops, inplace=True)
+    cols = list(data.columns)
+    while data.max().max() >= cross_correlation_threshold:
+        col = data.max().loc[data.max() == data.max().max()].index
+        if len(col) > 1:
+            col = col[0]
+        col2 = cols[data[col].values.argmax()]
+        if corr[col].loc['Rings'].item() >= corr[col2].loc['Rings'].item():
+            cols.remove(col2)
+            data.drop(columns=col2, inplace=True)
+            data.drop(col2, inplace=True)
+        else:
+            cols.remove(col)
+            data.drop(columns=col, inplace=True)
+            data.drop(col, inplace=True)
+    return cols
