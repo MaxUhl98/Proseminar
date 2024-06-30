@@ -17,6 +17,7 @@ from catboost import CatBoostRegressor
 from configuration import Configuration
 import pickle
 from kaggle import api
+from ast import literal_eval
 
 
 class TrainConfig:
@@ -27,6 +28,7 @@ class TrainConfig:
     reduce_features: bool = False
     model_class = LGBMRegressor
     clipping_range = (1, 25)
+    feature_selection_method: str = 'sfs'
 
     def __repr__(self):
         return f"""method: '{self.method}'
@@ -91,16 +93,19 @@ def train(cfg: TrainConfig):
     dummy_flag = need_dummies(cfg)
 
     X, y, X_additional_train, y_additional_train, X_sub = load_data(cfg=cfg, dummy_flag=dummy_flag)
-    assert X.shape[1] == X_sub.shape[1]-1, AssertionError(X.shape, X_sub.shape-1)
+    assert X.shape[1] == X_sub.shape[1] - 1, AssertionError(X.shape, X_sub.shape[1] - 1)
 
     if cfg.select_features:
+        with open(f'{Configuration.model_base_save_directory[cfg.model_class]}/selected_features_{cfg.method}.txt', 'r',
+                  encoding='utf-8') as f:
+            selected_features = literal_eval(f.read())
         try:
-            X_sub = X_sub[Configuration.selected_features + ['id']]
-            X = X[Configuration.selected_features]
-            X_additional_train = X_additional_train[Configuration.selected_features]
+            X_sub = X_sub[selected_features + ['id']]
+            X = X[selected_features]
+            X_additional_train = X_additional_train[selected_features]
         except Exception:
-            X = X[Configuration.selected_features]
-            X_sub = X_sub[Configuration.selected_features + ['id']]
+            X = X[selected_features]
+            X_sub = X_sub[selected_features + ['id']]
             pass
 
     folds = Configuration.folder.split(X, y)
@@ -156,9 +161,9 @@ def train(cfg: TrainConfig):
                       'wb') as f:
                 pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
         create_submission(X_sub, models)
-        api.competition_submit(f'submissions/{Configuration.model_base_save_directory[models[0].__class__].rsplit("/", 1)[1]}/submission.csv',
-                               cfg, competition=Configuration.competition)
-
+        api.competition_submit(
+            f'submissions/{Configuration.model_base_save_directory[models[0].__class__].rsplit("/", 1)[1]}/submission.csv',
+            cfg, competition=Configuration.competition)
 
 
 if __name__ == '__main__':
