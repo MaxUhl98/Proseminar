@@ -17,6 +17,7 @@ def msle_loss(y_true, y_pred):
 
 class Configuration:
 
+    competition: str = 'https://www.kaggle.com/competitions/playground-series-s4e4'
     dummied_data_dir:str = 'data/dummied'
     undummied_data_dir:str = 'data/undummied'
     num_folds: int = 10

@@ -16,6 +16,7 @@ from sklearn.linear_model import LinearRegression, RidgeCV, Ridge
 from catboost import CatBoostRegressor
 from configuration import Configuration
 import pickle
+from kaggle import api
 
 
 class TrainConfig:
@@ -24,8 +25,18 @@ class TrainConfig:
     use_additional_data: bool = True
     select_features: bool = True
     reduce_features: bool = False
-    model_class = XGBRegressor
+    model_class = LGBMRegressor
     clipping_range = (1, 25)
+
+    def __repr__(self):
+        return f"""method: '{self.method}'
+    num_engineered_features: {self.num_engineered_features}
+    use_additional_data: {self.use_additional_data}
+    select_features: {self.select_features}
+    reduce_features: {self.reduce_features}
+    model_class: {self.model_class}
+    clipping_range: {self.clipping_range}
+        """
 
 
 def get_model_init_kwargs(cfg: TrainConfig) -> Dict[str, Any]:
@@ -73,6 +84,7 @@ def load_data(cfg: TrainConfig, dummy_flag: bool) -> tuple[pd.DataFrame, pd.Data
 
 
 def train(cfg: TrainConfig):
+    api.authenticate()
     oof_predictions = []
     log_flag = need_log_transform(cfg)
     cv_flag = need_cv(cfg)
@@ -144,6 +156,9 @@ def train(cfg: TrainConfig):
                       'wb') as f:
                 pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
         create_submission(X_sub, models)
+        api.competition_submit(f'submissions/{Configuration.model_base_save_directory[models[0].__class__].rsplit("/", 1)[1]}/submission.csv',
+                               cfg, competition=Configuration.competition)
+
 
 
 if __name__ == '__main__':
