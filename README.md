@@ -1,0 +1,1 @@
+Seminar work togeather with my colleague D. v. Weyck, we demonstrated that by just using a combination of ther AutoML solutions OpenFE and Autogluon someone can become a top 20% participant at a kaggle playground competition. We also were able to reach top 10% by the addition of feature engineering, which we cut from the seminar work due to time/work constraints.
