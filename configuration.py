@@ -1,11 +1,11 @@
 from lightgbm import LGBMRegressor
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, LinearRegression
 from catboost import CatBoostRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor, StackingRegressor
 import numpy as np
 from xgboost import XGBRegressor
 from sklearn.model_selection import StratifiedKFold, KFold, GroupKFold, StratifiedGroupKFold
-from typing import *
+from typing import Union, Any
 import pandas as pd
 
 
@@ -16,37 +16,42 @@ def msle_loss(y_true, y_pred):
 
 
 class Configuration:
-
     competition: str = 'https://www.kaggle.com/competitions/playground-series-s4e4'
-    dummied_data_dir:str = 'data/dummied'
-    undummied_data_dir:str = 'data/undummied'
+    dummied_data_dir: str = 'data/dummied'
+    undummied_data_dir: str = 'data/undummied'
     num_folds: int = 10
     random_seed: int = 1
     folder: Union[StratifiedKFold, KFold, GroupKFold, StratifiedGroupKFold] = StratifiedKFold(num_folds, shuffle=True,
                                                                                               random_state=random_seed)
     n_jobs: int = 30
-    model_init_kwarg_mapping = {XGBRegressor: {'objective': 'reg:squaredlogerror'},
-                                LGBMRegressor: {'objective': msle_loss, 'n_jobs': n_jobs},
-                                HistGradientBoostingRegressor: {'max_iter': 10 ** 4},
-                                Ridge: {},
-                                StackingRegressor: {'estimators': [
-                                    ('xgb', XGBRegressor()), ('lgbm', LGBMRegressor()), ('cat', CatBoostRegressor()),
-                                    ('hist', HistGradientBoostingRegressor())], 'cv': folder, 'n_jobs': n_jobs,
-                                    'final_estimator': Ridge()},
-                                CatBoostRegressor: {}
-                                }
+    model_init_kwarg_mapping = {
+        XGBRegressor: {'objective': 'reg:squaredlogerror'},
+        LGBMRegressor: {'objective': msle_loss, 'n_jobs': n_jobs},
+        HistGradientBoostingRegressor: {'max_iter': 10 ** 4},
+        Ridge: {},
+        StackingRegressor: {'estimators': [
+            ('xgb', XGBRegressor()), ('lgbm', LGBMRegressor()), ('cat', CatBoostRegressor()),
+            ('hist', HistGradientBoostingRegressor(random_state=random_seed))], 'cv': folder, 'n_jobs': n_jobs,
+            'final_estimator': Ridge(random_state=random_seed),},
+        CatBoostRegressor: {},
+        LinearRegression: {}
+        }
+
+    model_classes = [CatBoostRegressor, LGBMRegressor, XGBRegressor, HistGradientBoostingRegressor,
+                     StackingRegressor, Ridge]
 
     model_base_save_directory = {XGBRegressor: r'D:/models/Abalone/models/xgb',
                                  LGBMRegressor: r'D:/models/Abalone/models/lgbm',
                                  HistGradientBoostingRegressor: r'D:/models/Abalone/models/histgb',
                                  Ridge: r'D:/models/Abalone/models/ridge',
                                  StackingRegressor: r'D:/models/Abalone/models/stacking_regressor',
-                                 CatBoostRegressor: r'D:/models/Abalone/models/cat'
+                                 CatBoostRegressor: r'D:/models/Abalone/models/cat',
+                                 LinearRegression: r'D:/models/Abalone/models/lr'
                                  }
 
-    log_transform_models = [CatBoostRegressor, StackingRegressor, HistGradientBoostingRegressor, Ridge]
+    log_transform_models = [CatBoostRegressor, StackingRegressor, HistGradientBoostingRegressor, Ridge, LinearRegression]
 
-    dummy_models = [StackingRegressor, LGBMRegressor, Ridge, XGBRegressor]
+    dummy_models = [StackingRegressor, LGBMRegressor, Ridge, XGBRegressor, HistGradientBoostingRegressor, LinearRegression]
 
     automatic_cv_models = [StackingRegressor]
 
@@ -58,6 +63,7 @@ class Configuration:
             HistGradientBoostingRegressor: {},
             CatBoostRegressor: {'cat_features': list(X.select_dtypes(include=['object', 'category']).columns)},
             Ridge: {},
-            StackingRegressor: {}
+            StackingRegressor: {},
+            LinearRegression: {}
         }
         return default_fit_kwargs[model_class]
